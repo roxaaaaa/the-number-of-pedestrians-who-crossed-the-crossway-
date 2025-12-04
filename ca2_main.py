@@ -7,65 +7,156 @@ Original file is located at
     https://colab.research.google.com/drive/1EU0S0rzjPGoPYUwlhOaXJnlCe5VuWcB7
 """
 
-pip install ultralytics deep-sort-realtime opencv-python yt-dlp
+from IPython.display import HTML
+from base64 import b64encode
+import os
 
-import cv2
-import os # Import os for path checking
-import sys # Import sys for sys.exit()
-from google.colab.patches import cv2_imshow # For displaying video in Colab
+video_path = '/content/crosswalk.mp4'
 
-# Ensure video_path points to the file in the Colab environment.
-# The kernel state lists '/content/crosswalk.mp4' as an available file.
-video_path = '/content/crosswalk.mp4' # Update this to the correct path in Colab
-
-# Check if the file actually exists at the Colab path before trying to open.
-# This adds a more specific error message if the file is truly missing.
+# Check if the file exists
 if not os.path.isfile(video_path):
-  print(f"Error: Video file not found at '{video_path}'. Please ensure it's uploaded or downloaded to this location.")
-  sys.exit(1)
+    print(f"Error: Video file not found at '{video_path}'.")
+else:
+    # Read the video file
+    with open(video_path, 'rb') as f:
+        video_data = f.read()
 
-# Try opening the video using the corrected path
-cap = cv2.VideoCapture(video_path)
+    # Encode to base64
+    video_base64 = b64encode(video_data).decode()
 
-if not cap.isOpened():
-  print(f"Error: The video file '{video_path}' exists but could not be opened.")
-  print("It might be corrupted or in an unsupported format.")
-  sys.exit(1)
+    # Create HTML5 video player
+    video_html = f"""
+    <video width="640" height="480" controls>
+        <source src="data:video/mp4;base64,{video_base64}" type="video/mp4">
+        Your browser does not support the video tag.
+    </video>
+    """
 
-print("Video opened successfully.")
+    # Display the video
+    display(HTML(video_html))
+    print("Video loaded successfully. Click play to watch.")
 
-# Define a frame limit to prevent excessive output in Colab
-frame_limit = 100 # Display only the first 100 frames
-frame_count = 0
-
-# --- Video playback loop ---
-while True:
-    ret, frame = cap.read()
-
-    if not ret:
-        print("End of video or error reading frame.")
-        break
-
-    # Use cv2_imshow for displaying frames in Colab notebooks.
-    # This is a Colab-specific function, as cv2.imshow does not work here.
-    cv2_imshow(frame)
-
-    frame_count += 1
-    if frame_count >= frame_limit:
-        print(f"Stopped after displaying {frame_limit} frames to prevent excessive output. You can adjust 'frame_limit' to see more.")
-        break
-
-    # In Colab, cv2.waitKey does not work as it requires a GUI environment.
-    # The loop will continue until the end of the video or the frame_limit is reached.
-    # If you need to stop early, you can manually stop the cell execution.
-
-cap.release()
-cv2.destroyAllWindows()
-print("Video closed.")
+!pip install ultralytics deep-sort-realtime opencv-python yt-dlp
 
 from ultralytics import YOLO
 model = YOLO("yolov8n.pt")
 
+import os
+from IPython.display import Video, display
 from deep_sort_realtime.deepsort_tracker import DeepSort
-tracker = DeepSort(max_age=30)
+tracker = DeepSort(
+    max_age=30
+)
+# classes=[0] tracks only people.
+# save=True saves the video file.
+# project='runs' and name='track_exp' forces a predictable output path.
+results = model.track(source='crosswalk.mp4', save=True, classes=[0], project='runs', name='track_exp', exist_ok=True)
+# 4. Convert video for Colab Display
+# YOLO saves as .avi or .mp4 that often won't play in Chrome/Colab directly.
+# We use ffmpeg to re-encode it to H.264 so it displays correctly.
+original_video_path = "/content/crosswalk.mp4" # Path where YOLO saved it
+converted_video_path = "/content/display_output.mp4"
 
+print("Converting video for browser display...")
+os.system(f"ffmpeg -y -loglevel panic -i {original_video_path} -vcodec libx264 {converted_video_path}")
+
+# 5. Show the video
+display(Video(converted_video_path, embed=True, width=600))
+
+cap = cv2.VideoCapture(video_path)
+if not cap.isOpened():
+    print("Error opening video file")
+    exit()
+fps = int(cap.get(cv2.CAP_PROP_FPS))
+frame_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+frame_height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+
+print(f"Video: {frame_width}x{frame_height} @ {fps} FPS")
+print(f"Total frames: {total_frames}")
+
+import cv2
+
+AOI = [(175, 250 ),(587, 200), (637, 209), (637,242 ),(238, 307)] # area of interest
+output_path = '/content/crosswalk_output.mp4'
+# 4. Open Video
+cap = cv2.VideoCapture(video_path)
+width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+fps = int(cap.get(cv2.CAP_PROP_FPS))
+
+# Setup Video Writer
+fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+max_people = 0
+
+while cap.isOpened():
+    success, frame = cap.read()
+    if not success:
+        break
+
+    # DRAW the Area of Interest
+
+    cv2.line(frame,AOI[0],AOI[1],(255,0,0),2)
+    cv2.line(frame,AOI[1],AOI[2],(255,0,0),2)
+    cv2.line(frame,AOI[2],AOI[3],(255,0,0),2)
+    cv2.line(frame,AOI[3],AOI[4],(255,0,0),2)
+    cv2.line(frame,AOI[4],AOI[0],(255,0,0),2)
+
+    # Add a label for the area
+    cv2.putText(frame, "Area of Interest", (AOI[0][0], AOI[1][1] - 10),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+
+    # --- B. Run Tracking ---
+    # persist=True keeps the IDs consistent
+    results = model.track(frame, persist=True, classes=[0], verbose=False)
+
+    # --- C. Check if People are Inside the Area ---
+    if results[0].boxes.id is not None:
+        boxes = results[0].boxes.xyxy.cpu()
+        track_ids = results[0].boxes.id.int().cpu().tolist()
+
+        people_in_area = 0
+
+        for box, track_id in zip(boxes, track_ids):
+            x1, y1, x2, y2 = box
+
+            # Calculate the center point of the person
+            cx = int((x1 + x2) / 2)
+            cy = int((y1 + y2) / 2)
+
+            # Check if the center point is INSIDE the AOI coordinates
+            # Logic: AOI_x1 < center_x < AOI_x2  AND  AOI_y1 < center_y < AOI_y2
+            if (AOI[1][1] < cy < AOI[4][1]) and (AOI[0][0] < cx < AOI[2][0]):
+                is_inside = True
+                people_in_area += 1
+                if people_in_area > max_people:
+                    max_people = people_in_area
+                color = (0, 255, 0) # Green box for person
+                status = "INSIDE"
+            else:
+                is_inside = False
+                color = (0, 0, 255) # Red box for person OUTSIDE
+                status = "OUTSIDE"
+
+            # Draw the person's bounding box and ID manually
+            cv2.rectangle(frame, (int(x1), int(y1)), (int(x2), int(y2)), color, 2)
+            cv2.putText(frame, f"ID: {track_id} {status}", (int(x1), int(y1) - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+            # Draw the center point
+            #cv2.circle(frame, (cx, cy), 5, color, -1)
+
+        # Draw total count in area
+        cv2.putText(frame, f"People in Area: {people_in_area}", (20, 50),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 3)
+
+    out.write(frame)
+
+
+cap.release()
+out.release()
+
+print(f"Processed video saved to {output_path}")
+print(f"Maximum number of people on the crosswalk: {max_people}")
